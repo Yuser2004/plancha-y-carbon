@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mesero - Plancha y Carbón</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body class="bg-gray-100 pb-36">
+    <header class="bg-orange-600 text-white p-4 sticky top-0 z-50 shadow-md flex justify-between items-center">
+        <h1 class="text-lg font-bold">Plancha y Carbón</h1>
+        <button onclick="cargarEstadoMesas()" class="bg-orange-500 px-3 py-1 rounded text-sm font-bold shadow active:scale-95">Actualizar</button>
+    </header>
+    
+    <main class="p-4 space-y-6">
+        <div class="sticky top-[72px] z-40">
+            <input type="text" id="buscador-platos" 
+                placeholder="🔍 Buscar plato (ej: Perro, Salchipapa...)" 
+                class="w-full p-4 rounded-2xl border-2 border-orange-300 shadow-lg focus:outline-none focus:border-orange-600 text-lg">
+        </div>
+        <section>
+            <h2 class="font-bold mb-2 text-gray-600 uppercase text-xs tracking-widest">1. Seleccionar Mesa</h2>
+            <div class="grid grid-cols-5 gap-2" id="contenedor-mesas">
+                {% for i in range(1, 11) %}
+                <button onclick="seleccionarMesa('{{i}}')" id="mesa-{{i}}" 
+                        class="btn-mesa bg-white border-2 border-gray-300 py-4 rounded-xl font-bold flex flex-col items-center transition-all shadow-sm active:bg-gray-200">
+                    <span class="text-xl">{{i}}</span>
+                    <span id="status-{{i}}" class="text-[9px] uppercase font-black opacity-60">Libre</span>
+                </button>
+                {% endfor %}
+                <button onclick="abrirModalExtra()" class="bg-blue-600 border-2 border-blue-700 py-4 rounded-xl font-black flex flex-col items-center justify-center text-white transition-all shadow-sm active:scale-95 col-span-2">
+                    <span class="text-lg">+ EXTRA</span>
+                    <span class="text-[9px] uppercase opacity-80">Mostrador</span>
+                </button>
+            </div>
+        </section>
+
+        <section class="space-y-4">
+            <h2 class="font-bold mb-2 text-gray-600 uppercase text-xs tracking-widest">2. Productos a Pedir</h2>
+            
+            {% for categoria, productos in carta.items() %}
+            <div class="border border-gray-200 rounded-2xl overflow-hidden shadow-sm bg-white">
+                
+                <button onclick="toggleCategoria('cat-{{ loop.index }}')" 
+                        class="w-full flex justify-between items-center p-5 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 transition-colors">
+                    <span class="font-black text-orange-900 text-2xl tracking-tight">{{ categoria }}</span>
+                    <span class="text-orange-500 text-3xl font-light transform transition-transform duration-300" id="icon-cat-{{ loop.index }}">+</span>
+                </button>
+
+                <div id="cat-{{ loop.index }}" class="hidden divide-y divide-gray-100">
+                    {% for p in productos %}
+                    <div class="item-producto p-5 flex flex-col space-y-3 active:bg-gray-50 transition-colors" data-nombre="{{ p.nombre | lower }}">
+                        
+                        <div class="flex justify-between items-center">
+                            <div class="flex-1 mr-4" onclick="modificarCantidad('{{p.nombre}}', '{{p.precio}}', 1)">
+                                <p class="font-black text-gray-800 text-lg leading-tight">{{ p.nombre }}</p>
+                                <p class="text-sm text-orange-600 font-bold mt-1">$ {{ "{:,}".format(p.precio) }}</p>
+                            </div>
+                            
+                            <div class="flex items-center space-x-3">
+                                <div id="control-{{p.nombre}}" class="flex items-center space-x-3 hidden">
+                                    <button onclick="modificarCantidad('{{p.nombre}}', '{{p.precio}}', -1)" 
+                                            class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center font-black text-3xl text-gray-700 active:scale-90 transition-transform">
+                                        -
+                                    </button>
+                                    <span id="cant-{{p.nombre}}" class="font-black text-2xl text-orange-600 min-w-[30px] text-center">0</span>
+                                </div>
+                                
+                                <button onclick="modificarCantidad('{{p.nombre}}', '{{p.precio}}', 1)" 
+                                        class="w-16 h-16 rounded-2xl bg-orange-500 flex items-center justify-center font-black text-4xl text-white shadow-md active:scale-90 transition-transform">
+                                    +
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="nota-ui-{{p.nombre}}" class="hidden flex items-center space-x-2 bg-gray-50 p-2 rounded-lg border border-dashed border-gray-300">
+                            <button onclick="dictarNota('{{p.nombre}}')" id="mic-{{p.nombre}}" 
+                                    class="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-xl border border-gray-200 active:bg-red-50">
+                                🎤
+                            </button>
+                            <input type="text" id="input-nota-{{p.nombre}}" 
+                                   class="flex-1 bg-transparent text-sm focus:outline-none text-gray-700 font-medium" 
+                                   placeholder="Toca el micro para dictar nota..."
+                                   onchange="guardarNota('{{p.nombre}}')">
+                        </div>
+
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+    </main>
+
+    <footer class="fixed bottom-0 left-0 right-0 bg-white border-t-4 border-orange-500 p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50">
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div class="flex flex-col bg-gray-50 p-3 rounded-xl border border-gray-200">
+                <span class="text-xs text-gray-500 uppercase font-bold tracking-widest">Mesa Seleccionada</span>
+                <span id="mesa-seleccionada" class="text-2xl font-black text-gray-800">--</span>
+            </div>
+            <div class="flex flex-col text-right bg-orange-50 p-3 rounded-xl border border-orange-200">
+                <span class="text-xs text-orange-500 uppercase font-bold tracking-widest">Total a cobrar</span>
+                <span class="text-2xl font-black text-orange-600">$<span id="total-cuenta">0</span></span>
+            </div>
+        </div>
+        <button onclick="enviarPedido()" class="w-full bg-orange-600 text-white font-black py-5 rounded-2xl shadow-xl active:scale-95 transition-transform uppercase text-xl tracking-wide flex items-center justify-center space-x-2">
+            <span>Enviar Pedido</span>
+            <span>🚀</span>
+        </button>
+    </footer>
+    <div id="btn-vale-flotante" class="fixed bottom-32 right-6 z-[60] hidden">
+        <button onclick="abrirModalVale()" class="bg-blue-600 text-white p-4 rounded-full shadow-2xl active:scale-95 transition-all relative border-2 border-white">
+            <span class="text-3xl">📝</span>
+            <div id="contador-vale" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black min-w-[24px] h-6 rounded-full flex items-center justify-center border-2 border-white shadow-md">
+                0
+            </div>
+        </button>
+    </div>
+    <div id="modal-vale" class="fixed inset-0 bg-black/70 z-[100] hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            
+            <div class="bg-gray-900 text-white p-4 flex justify-between items-center">
+                <div class="flex flex-col">
+                    <span class="text-[10px] uppercase tracking-widest text-gray-400">Plancha y Carbón</span>
+                    <h3 class="font-black text-lg uppercase tracking-tighter">Mesa #<span id="vale-mesa-num">--</span></h3>
+                </div>
+                <button onclick="cerrarModalVale()" class="bg-gray-800 hover:bg-red-600 w-10 h-10 rounded-full flex items-center justify-center transition-colors text-2xl">&times;</button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto bg-white flex-1 font-mono text-sm relative" id="cuerpo-vale">
+                <div class="border-b-2 border-dashed border-gray-300 pb-3 mb-3 flex justify-between font-bold text-gray-500">
+                    <span>DESCRIPCIÓN</span>
+                    <span>TOTAL</span>
+                </div>
+
+                <div id="lista-items-vale" class="space-y-4"></div>
+
+                <div class="border-t-2 border-dashed border-gray-300 mt-6 pt-4">
+                    <div class="flex justify-between items-center text-xl font-black text-gray-900">
+                        <span>TOTAL:</span>
+                        <span>$<span id="total-vale">0</span></span>
+                    </div>
+                </div>
+                
+                <div class="mt-8 text-center text-[10px] text-gray-400 uppercase tracking-widest">
+                    Fin del Pedido
+                </div>
+            </div>
+
+            <div class="p-4 bg-gray-50 border-t">
+                <button onclick="enviarPedido()" class="w-full bg-green-600 hover:bg-green-700 text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all uppercase flex items-center justify-center gap-2">
+                    <span>🚀 Confirmar y Enviar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+<div id="modal-meseros" class="fixed inset-0 bg-black/80 z-[110] hidden flex items-center justify-center p-4 backdrop-blur-md">
+    <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
+        <div class="bg-orange-600 text-white p-6 text-center">
+            <h3 class="text-xl font-black uppercase">¿Quién envía el pedido?</h3>
+            <p class="text-orange-100 text-sm">Selecciona tu nombre</p>
+        </div>
+        <div class="p-6 grid grid-cols-1 gap-3" id="lista-meseros-seleccion">
+            <button onclick="confirmarConMesero('Yuser')" class="w-full bg-gray-100 hover:bg-orange-100 py-4 rounded-2xl font-bold text-gray-800 border-2 border-transparent active:border-orange-500 transition-all text-lg">Yuser</button>
+            <button onclick="confirmarConMesero('Luis')" class="w-full bg-gray-100 hover:bg-orange-100 py-4 rounded-2xl font-bold text-gray-800 border-2 border-transparent active:border-orange-500 transition-all text-lg">Luis</button>
+            <button onclick="confirmarConMesero('Sofía')" class="w-full bg-gray-100 hover:bg-orange-100 py-4 rounded-2xl font-bold text-gray-800 border-2 border-transparent active:border-orange-500 transition-all text-lg">Sofia</button>
+            
+            <button onclick="cerrarModalMeseros()" class="mt-4 text-gray-400 font-bold py-2">Cancelar</button>
+        </div>
+    </div>
+</div>
+<div id="modal-extra" class="fixed inset-0 bg-black/80 z-[110] hidden flex items-center justify-center p-4 backdrop-blur-md">
+    <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
+        <div class="bg-blue-600 text-white p-6 text-center">
+            <h3 class="text-xl font-black uppercase">Nueva Cuenta</h3>
+            <p class="text-blue-100 text-xs mt-1">Escribe número o nombre (Ej: Dom 1)</p>
+        </div>
+        <div class="p-6 flex flex-col gap-4">
+            <input type="text" id="input-mesa-extra" placeholder="Ej: Dom 1" 
+                   class="w-full bg-gray-100 border-2 border-gray-300 p-4 rounded-2xl text-center text-xl font-black uppercase text-gray-800 focus:border-blue-500 focus:outline-none">
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="confirmarMesaExtra()" class="bg-blue-600 text-white font-black py-4 rounded-xl shadow active:scale-95">ABRIR</button>
+                <button onclick="cerrarModalExtra()" class="bg-gray-200 text-gray-700 font-black py-4 rounded-xl active:scale-95">CANCELAR</button>
+            </div>
+        </div>
+    </div>
+</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+<script>
+    // --- VARIABLES GLOBALES ---
+    let pedidosTemporales = JSON.parse(localStorage.getItem('pedidos_proceso')) || {}; 
+    let estadoGlobalMesas = {}; 
+    let mesaActual = null;
+    const socket = io(); 
+
+    const nombresDeFritos = [
+        {% for frito in carta.get('FRITOS', []) %}
+        "{{ frito.nombre }}"{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    // --- SECCIÓN DE MODALES (VALE Y MESEROS) ---
+    function abrirModalVale() {
+        const modal = document.getElementById('modal-vale');
+        if (modal) {
+            modal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden'; 
+        }
+    }
+
+    function cerrarModalVale() {
+        const modal = document.getElementById('modal-vale');
+        if (modal) {
+            modal.classList.add('hidden');
+            document.body.style.overflow = 'auto';
+        }
+    }
+
+    function cerrarModalMeseros() {
+        document.getElementById('modal-meseros').classList.add('hidden');
+    }
+    function abrirModalExtra() {
+        document.getElementById('modal-extra').classList.remove('hidden');
+        setTimeout(() => document.getElementById('input-mesa-extra').focus(), 100);
+    }
+
+    function cerrarModalExtra() {
+        document.getElementById('modal-extra').classList.add('hidden');
+        document.getElementById('input-mesa-extra').value = "";
+    }
+
+    function confirmarMesaExtra() {
+        let idExtra = document.getElementById('input-mesa-extra').value.trim().toUpperCase();
+        if (!idExtra) return alert("Escribe un identificador válido.");
+        
+        // Si no existe el botón de esa mesa en la pantalla, lo creamos
+        if (!document.getElementById('mesa-' + idExtra)) {
+            crearBotonMesaDinamica(idExtra);
+        }
+        
+        cerrarModalExtra();
+        seleccionarMesa(idExtra);
+    }
+
+    function crearBotonMesaDinamica(id) {
+        const contenedor = document.getElementById('contenedor-mesas');
+        const btnExtra = contenedor.lastElementChild; // Guardamos el botón azul de "+ EXTRA"
+        contenedor.removeChild(btnExtra); // Lo quitamos temporalmente
+
+        const nuevoBtn = document.createElement('button');
+        nuevoBtn.id = 'mesa-' + id;
+        nuevoBtn.onclick = () => seleccionarMesa(id);
+        nuevoBtn.className = "btn-mesa bg-white border-2 border-gray-300 py-4 rounded-xl font-bold flex flex-col items-center transition-all shadow-sm";
+        
+        // Si el nombre es muy largo, lo cortamos un poco para que quepa en el cuadrito
+        let textoMostrar = id.length > 6 ? id.substring(0,5) + '.' : id;
+
+        nuevoBtn.innerHTML = `
+            <span class="text-sm truncate w-full px-1 text-gray-800">${textoMostrar}</span>
+            <span id="status-${id}" class="text-[9px] uppercase font-black opacity-60 text-gray-800">Libre</span>
+        `;
+        
+        contenedor.appendChild(nuevoBtn);
+        contenedor.appendChild(btnExtra); // Volvemos a poner el botón azul al final
+    }
+
+    function toggleCategoria(id) {
+        const el = document.getElementById(id);
+        const icon = document.getElementById('icon-' + id.split('-')[1]);
+        if (el.classList.contains('hidden')) {
+            el.classList.remove('hidden');
+            icon.innerText = "−";
+            icon.classList.add('rotate-45');
+        } else {
+            el.classList.add('hidden');
+            icon.innerText = "+";
+            icon.classList.remove('rotate-45');
+        }
+    }
+
+    // --- SECCIÓN DE VOZ ---
+    function dictarNota(nombre) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return alert("Voz no soportada en este navegador.");
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'es-CO';
+        recognition.interimResults = true; 
+        recognition.continuous = false;    
+
+        const micBtn = document.getElementById(`mic-${nombre}`);
+        const inputNota = document.getElementById(`input-nota-${nombre}`);
+
+        recognition.onstart = () => {
+            micBtn.classList.replace('bg-white', 'bg-red-600');
+            micBtn.classList.add('animate-pulse', 'text-white');
+            inputNota.placeholder = "Escuchando...";
+        };
+
+        recognition.onresult = (event) => {
+            const texto = event.results[0][0].transcript;
+            inputNota.value = texto;
+            if (event.results[0].isFinal) {
+                guardarNota(nombre);
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.error("Error de voz:", event.error);
+            if(event.error === 'not-allowed') alert("Debes dar permiso al micrófono.");
+        };
+
+        recognition.onend = () => {
+            micBtn.classList.replace('bg-red-600', 'bg-white');
+            micBtn.classList.remove('animate-pulse', 'text-white');
+            inputNota.placeholder = "Toca el micro para dictar nota...";
+        };
+
+        recognition.start();
+    }
+
+    function guardarNota(nombre) {
+        const nota = document.getElementById(`input-nota-${nombre}`).value;
+        if (pedidosTemporales[mesaActual] && pedidosTemporales[mesaActual][nombre]) {
+            pedidosTemporales[mesaActual][nombre].nota = nota;
+            localStorage.setItem('pedidos_proceso', JSON.stringify(pedidosTemporales));
+            actualizarTotal(); 
+        }
+    }
+
+    // --- SECCIÓN DE MESAS ---
+    async function cargarEstadoMesas() {
+        try {
+            const res = await fetch('/estado_mesas');
+            estadoGlobalMesas = await res.json();
+            // --- INYECTAR MESAS EXTRA SI EXISTEN EN EL SERVIDOR O LOCALSTORAGE ---
+            const todasLasMesas = new Set([...Object.keys(estadoGlobalMesas), ...Object.keys(pedidosTemporales)]);
+            todasLasMesas.forEach(id => {
+                // Si la mesa no está en el HTML (porque no es del 1 al 10), la inyectamos visualmente
+                if (!document.getElementById('mesa-' + id) && id !== "null") {
+                    crearBotonMesaDinamica(id);
+                }
+            });
+            document.querySelectorAll('.btn-mesa').forEach(btn => {
+                const num = btn.id.split('-')[1];
+                const statusSpan = document.getElementById('status-' + num);
+                if (estadoGlobalMesas[num]) {
+                    const estado = estadoGlobalMesas[num].estado;
+                    btn.className = `btn-mesa border-2 py-4 rounded-xl font-bold flex flex-col items-center text-white transition-all shadow-sm ${estado === 'Listo' ? 'bg-green-500 border-green-600' : 'bg-orange-500 border-orange-600'}`;
+                    statusSpan.innerText = estado === 'Pendiente' ? 'Enviado' : '¡Listo!';
+                } else if (pedidosTemporales[num] && Object.keys(pedidosTemporales[num]).length > 0) {
+                    btn.className = "btn-mesa border-2 py-4 rounded-xl font-bold flex flex-col items-center bg-blue-500 border-blue-600 text-white shadow-sm transition-all";
+                    statusSpan.innerText = "Anotando...";
+                } else {
+                    btn.className = "btn-mesa bg-white border-2 border-gray-300 py-4 rounded-xl font-bold flex flex-col items-center text-gray-800 transition-all shadow-sm active:bg-gray-200";
+                    statusSpan.innerText = "Libre";
+                }
+                if (num === mesaActual) btn.classList.add('ring-4', 'ring-blue-800', 'scale-105');
+            });
+        } catch (e) { console.log("Error cargando mesas:", e); }
+    }
+
+    function seleccionarMesa(num) {
+        mesaActual = num;
+        document.querySelectorAll('.btn-mesa').forEach(b => b.classList.remove('ring-4', 'ring-blue-800', 'scale-105'));
+        const btnSel = document.getElementById('mesa-' + num);
+        if (btnSel) btnSel.classList.add('ring-4', 'ring-blue-800', 'scale-105');
+        
+        document.getElementById('mesa-seleccionada').innerText = num;
+        document.getElementById('vale-mesa-num').innerText = num;
+
+        resetInterfazContadores();
+        
+        if (pedidosTemporales[num]) {
+            for (let nombre in pedidosTemporales[num]) {
+                const item = pedidosTemporales[num][nombre];
+                actualizarUIContador(nombre, item.cantidad);
+                const inputNota = document.getElementById(`input-nota-${nombre}`);
+                if (inputNota && item.nota) inputNota.value = item.nota;
+            }
+        }
+        if (socket) socket.emit('notificar_digitacion', { mesa: num, estado: 'Anotando...' });
+        actualizarTotal();
+        cargarEstadoMesas();
+    }
+
+    // --- PRODUCTOS Y TOTALES ---
+    function modificarCantidad(nombre, precio, cambio) {
+        if (!mesaActual) return alert("👉 ¡Primero toca el número de la mesa!");
+        socket.emit('notificar_digitacion', { mesa: mesaActual, estado: 'Anotando...' });
+
+        if (!pedidosTemporales[mesaActual]) pedidosTemporales[mesaActual] = {};
+        if (!pedidosTemporales[mesaActual][nombre]) {
+            pedidosTemporales[mesaActual][nombre] = { precio: Number(precio), cantidad: 0, nota: "" };
+        }
+
+        pedidosTemporales[mesaActual][nombre].cantidad += cambio;
+
+        if (pedidosTemporales[mesaActual][nombre].cantidad <= 0) {
+            delete pedidosTemporales[mesaActual][nombre];
+            actualizarUIContador(nombre, 0);
+        } else {
+            actualizarUIContador(nombre, pedidosTemporales[mesaActual][nombre].cantidad);
+        }
+
+        if (Object.keys(pedidosTemporales[mesaActual]).length === 0) {
+            socket.emit('notificar_libre', { mesa: mesaActual });
+        }
+
+        localStorage.setItem('pedidos_proceso', JSON.stringify(pedidosTemporales));
+        actualizarTotal();
+    }
+
+    function actualizarUIContador(nombre, cant) {
+        const span = document.getElementById(`cant-${nombre}`);
+        const control = document.getElementById(`control-${nombre}`);
+        const notaUI = document.getElementById(`nota-ui-${nombre}`); 
+
+        if (span && control) {
+            span.innerText = cant;
+            if (cant > 0) {
+                control.classList.remove('hidden');
+                if (notaUI) notaUI.classList.remove('hidden'); 
+            } else {
+                control.classList.add('hidden');
+                if (notaUI) notaUI.classList.add('hidden'); 
+                const input = document.getElementById(`input-nota-${nombre}`);
+                if (input) input.value = "";
+            }
+        }
+    }
+
+    function resetInterfazContadores() {
+        document.querySelectorAll('[id^="cant-"]').forEach(s => s.innerText = "0");
+        document.querySelectorAll('[id^="control-"]').forEach(d => d.classList.add('hidden'));
+        document.querySelectorAll('[id^="nota-ui-"]').forEach(d => d.classList.add('hidden'));
+        document.querySelectorAll('[id^="input-nota-"]').forEach(i => i.value = "");
+    }
+
+    function actualizarTotal() {
+        let totalCuentaCompleta = 0;
+        let nuevosItemsParaBoton = 0;
+        
+        const btnFlotante = document.getElementById('btn-vale-flotante');
+        if (!mesaActual) {
+            if (btnFlotante) btnFlotante.classList.add('hidden');
+            return;
+        } else if (btnFlotante) {
+            btnFlotante.classList.remove('hidden');
+        }
+
+        const pedidoYaEnviado = estadoGlobalMesas[mesaActual] || { items: [] };
+        const productosNuevos = pedidosTemporales[mesaActual] || {};
+        const listaVale = document.getElementById('lista-items-vale');
+        if (!listaVale) return;
+        listaVale.innerHTML = ""; 
+
+        const limpiarNumero = (num) => isNaN(parseFloat(num)) ? 0 : parseFloat(num);
+
+        if (pedidoYaEnviado.items) {
+            pedidoYaEnviado.items.forEach(item => {
+                const nombre = item.nombre || item.nombre_producto;
+                const precio = limpiarNumero(item.precio_unitario || item.precio); 
+                const cant = limpiarNumero(item.cantidad);
+                const subtotal = precio * cant;
+                totalCuentaCompleta += subtotal;
+                const fila = document.createElement('div');
+                fila.className = "flex flex-col border-b border-dotted border-gray-200 py-2";
+                fila.innerHTML = `<div class="flex justify-between items-start text-xs"><span class="text-gray-400 italic line-through">✅ ${cant} x ${nombre}</span><span class="font-mono font-bold text-gray-700">$${subtotal.toLocaleString('es-CO')}</span></div>`;
+                listaVale.appendChild(fila);
+            });
+        }
+
+        for (let nombre in productosNuevos) {
+            const item = productosNuevos[nombre];
+            const subtotal = limpiarNumero(item.precio) * limpiarNumero(item.cantidad);
+            totalCuentaCompleta += subtotal;
+            nuevosItemsParaBoton += item.cantidad;
+
+            const fila = document.createElement('div');
+            fila.className = "flex flex-col border-b border-dotted border-orange-400 py-2 bg-orange-50 px-1";
+            fila.innerHTML = `
+                <div class="flex justify-between items-start text-xs font-black text-orange-800"><span>+ ${item.cantidad} x ${nombre}</span><span class="font-mono text-orange-600">$${subtotal.toLocaleString('es-CO')}</span></div>
+                ${item.nota ? `<span class="text-[10px] text-red-500 font-bold italic mt-1">» ${item.nota}</span>` : ''}
+            `;
+            listaVale.appendChild(fila);
+        }
+
+        document.getElementById('total-cuenta').innerText = totalCuentaCompleta.toLocaleString('es-CO');
+        document.getElementById('total-vale').innerText = totalCuentaCompleta.toLocaleString('es-CO');
+        
+        const contadorVale = document.getElementById('contador-vale');
+        if(contadorVale) {
+            contadorVale.innerText = nuevosItemsParaBoton;
+            contadorVale.style.display = nuevosItemsParaBoton > 0 ? 'flex' : 'none';
+        }
+    }
+
+    // --- SECCIÓN DE ENVÍO (LÓGICA DE MESEROS) ---
+    async function enviarPedido() {
+        if (!mesaActual || !pedidosTemporales[mesaActual] || Object.keys(pedidosTemporales[mesaActual]).length === 0) {
+            alert("No hay productos seleccionados para enviar.");
+            return;
+        }
+        // Paso 1: Abrir selector visual de meseros
+        document.getElementById('modal-meseros').classList.remove('hidden');
+    }
+
+    async function confirmarConMesero(nombreMesero) {
+        const btnModal = event.currentTarget;
+        const originalText = btnModal.innerText;
+        
+        btnModal.disabled = true;
+        btnModal.innerText = "Enviando...";
+
+        const productosArray = Object.keys(pedidosTemporales[mesaActual]).map(nombre => ({
+            nombre: nombre,
+            precio: pedidosTemporales[mesaActual][nombre].precio,
+            cantidad: pedidosTemporales[mesaActual][nombre].cantidad,
+            nota: pedidosTemporales[mesaActual][nombre].nota
+        }));
+
+        const datosAEnviar = {
+            mesa: mesaActual,
+            mesero: nombreMesero,
+            items: productosArray
+        };
+
+        try {
+            const res = await fetch('/enviar_pedido', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(datosAEnviar)
+            });
+
+            if (res.ok) {
+                delete pedidosTemporales[mesaActual];
+                localStorage.setItem('pedidos_proceso', JSON.stringify(pedidosTemporales));
+                resetInterfazContadores();
+                cerrarModalVale();
+                cerrarModalMeseros();
+                
+                setTimeout(async () => {
+                    await cargarEstadoMesas(); 
+                    actualizarTotal();
+                    btnModal.disabled = false;
+                    btnModal.innerText = originalText;
+                    alert(`✅ ¡Pedido de ${nombreMesero} enviado a cocina!`);
+                }, 500);
+            } else {
+                throw new Error("Error en servidor");
+            }
+        } catch (error) {
+            alert("Error de conexión. Verifica el servidor.");
+            btnModal.disabled = false;
+            btnModal.innerText = originalText;
+        }
+    }
+
+    // --- SOCKETS Y BUSCADOR ---
+    socket.on('usuario_anotando', (data) => {
+        const btn = document.getElementById('mesa-' + data.mesa);
+        const statusSpan = document.getElementById('status-' + data.mesa);
+        if (btn && statusSpan) {
+            btn.className = "btn-mesa border-2 py-4 rounded-xl font-bold flex flex-col items-center bg-blue-500 border-blue-600 text-white shadow-sm";
+            statusSpan.innerText = "Anotando...";
+        }
+    });
+
+    socket.on('usuario_libre', (data) => cargarEstadoMesas());
+    socket.on('actualizar_mesas', () => cargarEstadoMesas());
+
+    window.onload = cargarEstadoMesas;
+    setInterval(cargarEstadoMesas, 5000);
+
+    document.getElementById('buscador-platos').addEventListener('input', function(e) {
+        const termino = e.target.value.toLowerCase().trim();
+        const productos = document.querySelectorAll('.item-producto');
+        const categorias = document.querySelectorAll('.border.border-gray-200'); 
+
+        if (termino.length > 0) {
+            productos.forEach(prod => {
+                const nombre = prod.getAttribute('data-nombre');
+                prod.classList.toggle('hidden', !nombre.includes(termino));
+            });
+            categorias.forEach(cat => {
+                const visibles = cat.querySelectorAll('.item-producto:not(.hidden)').length;
+                cat.classList.toggle('hidden', visibles === 0);
+                const contenido = cat.querySelector('div[id^="cat-"]');
+                const icono = cat.querySelector('span[id^="icon-cat-"]');
+                if (visibles > 0) {
+                    contenido.classList.remove('hidden');
+                    if(icono) { icono.innerText = "−"; icono.classList.add('rotate-45'); }
+                }
+            });
+        } else {
+            productos.forEach(prod => prod.classList.remove('hidden'));
+            categorias.forEach(cat => {
+                cat.classList.remove('hidden');
+                cat.querySelector('div[id^="cat-"]').classList.add('hidden');
+                const icono = cat.querySelector('span[id^="icon-cat-"]');
+                if(icono) { icono.innerText = "+"; icono.classList.remove('rotate-45'); }
+            });
+        }
+    });
+</script>
+</body>
+</html>

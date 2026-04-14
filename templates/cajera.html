@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caja - Plancha y Carbón</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen p-4">
+    <header class="mb-6 flex justify-between items-center border-b border-slate-700 pb-4">
+        <h1 class="text-2xl font-black text-orange-500 uppercase">Caja Central</h1>
+        <div id="reloj" class="text-slate-400 font-mono"></div>
+    </header>
+
+    <div id="contenedor-cuentas" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        </div>
+
+<script>
+    const socket = io();
+
+    socket.on('actualizar_mesas', () => {
+        actualizarCaja(); 
+    });
+
+    async function actualizarCaja() {
+        try {
+            const res = await fetch('/estado_mesas');
+            const mesas = await res.json();
+            const contenedor = document.getElementById('contenedor-cuentas');
+            let html = "";
+
+            if (Object.keys(mesas).length === 0) {
+                contenedor.innerHTML = "<p class='col-span-full text-center text-slate-500 mt-10 text-xl italic'>No hay pedidos activos.</p>";
+                return;
+            }
+
+            for (let num in mesas) {
+                const mesa = mesas[num];
+                const nombreMesero = mesa.mesero || "Sin asignar";
+
+                // --- LÓGICA DE ETIQUETA LIMPIA ---
+                // Si num es solo números (ej: "5"), se muestra "MESA 5". 
+                // Si contiene letras (ej: "DOMICILIO CARLOS"), se muestra tal cual.
+                const esNumero = /^\d+$/.test(num);
+                const textoCabecera = esNumero ? `MESA ${num}` : num.toUpperCase();
+
+                let totalMesa = mesa.items_completo.reduce((s, i) => {
+                    return s + (parseFloat(i.precio || 0) * parseFloat(i.cantidad || 0));
+                }, 0);
+
+                let itemsHtml = mesa.items_completo.map(i => `
+                    <div class="flex justify-between border-b border-slate-700 py-1 text-sm">
+                        <span>${i.cantidad}x ${i.nombre}</span>
+                        <span class="text-slate-400">$${(i.precio * i.cantidad).toLocaleString()}</span>
+                    </div>
+                `).join('');
+
+                html += `
+                    <div id="card-mesa-${num}" class="bg-slate-800 rounded-3xl p-5 shadow-2xl border-2 ${mesa.estado === 'Listo' ? 'border-green-500' : 'border-orange-500'} transition-opacity">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="bg-slate-700 px-4 py-1 rounded-full font-black tracking-widest text-sm text-orange-400">
+                                ${textoCabecera}
+                            </span>
+                            <span class="text-xs uppercase font-bold ${mesa.estado === 'Listo' ? 'text-green-400' : 'text-orange-400'} animate-pulse">
+                                ${mesa.estado}
+                            </span>
+                        </div>
+                        
+                        <div class="mb-4 flex items-center space-x-2">
+                            <span class="text-[10px] bg-slate-900 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-md font-bold uppercase">
+                                Atiende: ${nombreMesero}
+                            </span>
+                        </div>
+
+                        <div class="space-y-1 mb-6 max-h-40 overflow-y-auto bg-slate-950/50 p-3 rounded-xl">
+                            ${itemsHtml}
+                        </div>
+
+                        <div class="flex justify-between items-end">
+                            <div>
+                                <p class="text-slate-500 text-[10px] uppercase font-black">Total Cuenta</p>
+                                <p class="text-3xl font-black text-white">$${totalMesa.toLocaleString()}</p>
+                            </div>
+                            <button onclick="liberarMesa(this, '${num}')" class="bg-green-600 hover:bg-green-500 text-white font-black px-8 py-4 rounded-2xl transition-all shadow-lg active:scale-95 uppercase text-sm border-b-4 border-green-800">
+                                PAGÓ
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+            contenedor.innerHTML = html;
+        } catch (e) { console.error("Error cargando caja:", e); }
+    }
+
+    async function liberarMesa(boton, num) {
+        if (!confirm(`¿Confirmar pago de: ${num}?`)) return;
+
+        boton.disabled = true;
+        boton.innerText = "OK...";
+        boton.classList.replace('bg-green-600', 'bg-slate-700');
+        
+        const card = document.getElementById(`card-mesa-${num}`);
+        if(card) card.style.opacity = "0.5";
+
+        try {
+            // Enviamos el nombre de la mesa/domicilio codificado para la URL
+            const res = await fetch(`/pagar_mesa/${encodeURIComponent(num)}`, { method: 'POST' });
+            if (res.ok) {
+                actualizarCaja();
+            } else {
+                alert("Error al procesar pago");
+                actualizarCaja();
+            }
+        } catch (err) {
+            console.error(err);
+            actualizarCaja();
+        }
+    }
+
+    setInterval(() => {
+        const reloj = document.getElementById('reloj');
+        if(reloj) reloj.innerText = new Date().toLocaleTimeString();
+    }, 1000);
+
+    window.onload = actualizarCaja;
+</script>
+</body>
+</html>

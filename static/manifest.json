@@ -1,0 +1,15 @@
+{
+  "short_name": "Plancha y Carbón",
+  "name": "Sistema de Gestión Plancha y Carbón",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1a1a1a",
+  "background_color": "#1a1a1a",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1046/1046747.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
