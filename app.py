@@ -102,7 +102,7 @@ class ItemPedido(db.Model):
 with app.app_context():
     db.create_all()
 
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # ==========================================
 # DICCIONARIO DE LA CARTA
@@ -588,4 +588,9 @@ def handle_libre(data):
     socketio.emit('usuario_libre', data, include_self=False)
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+    # Render nos pasa el puerto en una variable de entorno
+    port = int(os.environ.get("PORT", 5000))
+    
+    # Usamos socketio.run para que el tiempo real funcione bien
+    # Quitamos debug=True para producción (es más seguro y rápido)
+    socketio.run(app, host='0.0.0.0', port=port)
