@@ -6,6 +6,7 @@ import os
 import pytz
 from datetime import datetime
 from functools import wraps
+import time
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__)
@@ -355,6 +356,7 @@ def estado_mesas():
 
 @app.route('/enviar_pedido', methods=['POST'])
 def enviar_pedido():
+    inicio = time.time()
     data = request.json
     # El Punto 5: mesa_id ahora acepta texto ("Vitrina", "Mesa 1", etc.)
     mesa_id = str(data.get('mesa'))
@@ -401,6 +403,9 @@ def enviar_pedido():
             db.session.add(nuevo_item)
     
     db.session.commit()
+    fin = time.time()
+    print(f"DEBUG: Tiempo de respuesta DB: {fin - inicio} segundos")
+    return "OK"
     socketio.emit('actualizar_mesas')
     return jsonify({"success": True})
 @app.route('/completar_mesa/<num_mesa>', methods=['POST']) # <-- Quitamos el 'int:'

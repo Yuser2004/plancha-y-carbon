@@ -192,7 +192,16 @@
     let pedidosTemporales = JSON.parse(localStorage.getItem('pedidos_proceso')) || {}; 
     let estadoGlobalMesas = {}; 
     let mesaActual = null;
-    const socket = io(); 
+    /* const socket = io(); */ 
+    localStorage.debug = '*'; // Esto activa logs detallados en la consola del navegador
+    const socket = io({
+        transports: ['websocket', 'polling'],
+        upgrade: true
+    });
+    
+    socket.on("connect_error", (err) => {
+        console.log("Error de conexión detectado:", err.message);
+    });
 
     const nombresDeFritos = [
         {% for frito in carta.get('FRITOS', []) %}
