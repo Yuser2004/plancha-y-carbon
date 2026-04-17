@@ -104,12 +104,20 @@ async function actualizarCocina() {
 
             const nombreMesero = mesa.mesero || "Mesero";
 
-            // Lógica de Voz (Se mantiene igual, funciona bien)
+            // Lógica de Voz (pedido + mesero + notas)
             itemsNuevos.forEach(item => {
-                const pedidoID = `${numMesa}-${item.nombre}-${item.cantidad}`;
+                // Tip: Agregamos la nota al ID para que si piden lo mismo pero con nota diferente, vuelva a sonar
+                const pedidoID = `${numMesa}-${item.nombre}-${item.cantidad}-${item.nota || ''}`;
+                
                 if (!pedidosProcesados.has(pedidoID)) {
                     reproducirSonido();
-                    const textoRepetido = `Mesa ${numMesa}, atendida por ${nombreMesero}. ${item.cantidad} ${item.nombre}. Repito. ${item.cantidad} ${item.nombre}.`;
+
+                    // 1. Preparamos el pedazo de texto de la nota (si existe)
+                    const notaParaVoz = item.nota ? `, con nota especial: ${item.nota}` : '';
+
+                    // 2. Metemos 'notaParaVoz' en el mensaje
+                    const textoRepetido = `Mesa ${numMesa}, atendida por ${nombreMesero}. ${item.cantidad} ${item.nombre}${notaParaVoz}. Repito. ${item.cantidad} ${item.nombre}${notaParaVoz}.`;
+                    
                     hablarPedido(textoRepetido);
                     pedidosProcesados.add(pedidoID);
                 }
