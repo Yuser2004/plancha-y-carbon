@@ -405,7 +405,6 @@ def enviar_pedido():
     db.session.commit()
     fin = time.time()
     print(f"DEBUG: Tiempo de respuesta DB: {fin - inicio} segundos")
-    return "OK"
     socketio.emit('actualizar_mesas')
     return jsonify({"success": True})
 @app.route('/completar_mesa/<num_mesa>', methods=['POST']) 
@@ -530,7 +529,8 @@ def reporte_hoy():
         "total_dinero": total_diario,
         "productos": [{"nombre": p[0], "cantidad": p[1]} for p in productos_vendidos],
         "mesas": [{"id": m[0], "total": m[1]} for m in ventas_por_mesa],
-        "auditoria": lista_auditoria 
+        "auditoria": lista_auditoria,
+        "fecha_reporte": ahora_col.strftime('%A, %d de %B') # <--- AGREGA ESTO
     })
 @app.route('/admin/auditoria_diaria')
 @login_required  # <--- CANDADO APLICADO

@@ -188,9 +188,11 @@
         // --- FUNCIONES DE REPORTES P&C ---
         async function cargarReporte() {
             try {
-                const res = await fetch('/admin/reporte_hoy');
+                const res = await fetch('/admin/reporte_hoy?t=' + new Date().getTime());
                 const data = await res.json();
-
+                if(data.fecha_reporte) {
+                    document.getElementById('fecha-actual').innerText = data.fecha_reporte;
+                }
                 document.getElementById('total-dinero').innerText = `$${data.total_dinero.toLocaleString()}`;
                 document.getElementById('total-mesas').innerText = data.mesas.length;
                 
