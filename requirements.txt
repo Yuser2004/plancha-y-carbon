@@ -6,33 +6,6 @@ gunicorn==21.2.0
 pytz==2025.2
 python-socketio==5.10.0
 python-engineio==4.8.0
-[2026-04-16 23:36:22 +0000] [37] [INFO] Using worker: sync
-
-[CRITICAL] WORKER TIMEOUT (NO APARECE NADA POR ESA LINEA)
-
-agregué esto al script principal de mesero:
-
-    /* const socket = io(); */ 
-
-    localStorage.debug = '*'; // Esto activa logs detallados en la consola del navegador
-
-    const socket = io({
-
-        transports: ['websocket', 'polling'],
-
-        upgrade: true
-
-    });
-
-    
-
-    socket.on("connect_error", (err) => {
-
-        console.log("Error de conexión detectado:", err.message);
-
-    });
-
-
-
-    const nombresDeFritos = [
+gevent==24.2.1
+greenlet==3.0.3
 
