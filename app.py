@@ -1,12 +1,12 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for # <--- Agregados session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
 from sqlalchemy import func
+from functools import wraps
 import os
 import pytz
-from datetime import datetime
-from functools import wraps
-import time
+import time  # Para el sleep
+from datetime import datetime, time as dt_time  
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__)
@@ -408,9 +408,8 @@ def enviar_pedido():
     return "OK"
     socketio.emit('actualizar_mesas')
     return jsonify({"success": True})
-@app.route('/completar_mesa/<num_mesa>', methods=['POST']) # <-- Quitamos el 'int:'
+@app.route('/completar_mesa/<num_mesa>', methods=['POST']) 
 def completar_mesa(num_mesa):
-    # Ya no necesitas str(num_mesa) porque al quitar 'int:' ya viene como texto
     pedido = Pedido.query.filter(Pedido.mesa == num_mesa, Pedido.estado != 'Pagado').first()
     
     if pedido:
@@ -421,15 +420,9 @@ def completar_mesa(num_mesa):
         pedido.preparado_en = hora_colombia()
         db.session.commit()
 
-        # --- LÓGICA DE AUTO-LIMPIEZA ---
-        # Si la mesa NO es de las fijas (1 a 12), podemos marcarla como pagada 
-        # o eliminarla para que desaparezca de cocina y caja de una vez.
-        # Si quieres que desaparezca de cocina pero siga en caja para cobrar,
-        # déjala como está. Si quieres que se borre de todo lado:
-        
-        # if not (num_mesa.isdigit() and 1 <= int(num_mesa) <= 12):
-        #     pedido.estado = 'Pagado' # Esto la sacaría de las listas activas
-        #     db.session.commit()
+        # Pausa técnica de 400ms para asegurar que Supabase guarde
+        # antes de que el Socket dispare las peticiones de refresco
+        time.sleep(0.4) 
 
         socketio.emit('pedido_listo_emergencia', {
             "mesa": pedido.mesa,
@@ -463,15 +456,18 @@ def pagar_mesa(mesa_id):
 # REPORTES Y AUDITORÍA
 # ==========================================
 @app.route('/admin/reporte_hoy')
-@login_required  # <--- CANDADO APLICADO
+@login_required
 def reporte_hoy():
-    hoy = hora_colombia().date()
+    # Definimos el rango de hoy en Colombia (00:00:00 a 23:59:59)
+    ahora_col = hora_colombia()
+    hoy_inicio = datetime.combine(ahora_col.date(), dt_time.min)
+    hoy_fin = datetime.combine(ahora_col.date(), dt_time.max)
     
-    # 1. Total dinero
+    # 1. Total dinero (Cambiamos func.date por el rango .between)
     total_diario = db.session.query(func.sum(ItemPedido.precio_unitario * ItemPedido.cantidad))\
         .join(Pedido)\
         .filter(Pedido.estado == 'Pagado')\
-        .filter(func.date(Pedido.creado_en) == hoy).scalar() or 0
+        .filter(Pedido.creado_en.between(hoy_inicio, hoy_fin)).scalar() or 0
 
     # 2. Top Ventas
     productos_vendidos = db.session.query(
@@ -479,7 +475,7 @@ def reporte_hoy():
         func.sum(ItemPedido.cantidad).label('total')
     ).join(Pedido)\
      .filter(Pedido.estado == 'Pagado')\
-     .filter(func.date(Pedido.creado_en) == hoy)\
+     .filter(Pedido.creado_en.between(hoy_inicio, hoy_fin))\
      .group_by(ItemPedido.nombre_producto)\
      .order_by(func.sum(ItemPedido.cantidad).desc()).all()
 
@@ -489,23 +485,20 @@ def reporte_hoy():
         func.sum(ItemPedido.precio_unitario * ItemPedido.cantidad)
     ).join(ItemPedido)\
      .filter(Pedido.estado == 'Pagado')\
-     .filter(func.date(Pedido.creado_en) == hoy)\
+     .filter(Pedido.creado_en.between(hoy_inicio, hoy_fin))\
      .group_by(Pedido.mesa).all()
 
-    # 4. LISTA PARA LA TABLA DE AUDITORÍA (ESTRUCTURADA PARA EL VALE)
+    # 4. LISTA PARA LA TABLA DE AUDITORÍA
     pedidos_auditoria = Pedido.query.filter(
         Pedido.estado == 'Pagado',
-        func.date(Pedido.creado_en) == hoy
-    ).all()
+        Pedido.creado_en.between(hoy_inicio, hoy_fin)
+    ).order_by(Pedido.creado_en.desc()).all() # Ordenamos para ver lo último arriba
     
     lista_auditoria = []
     for p in pedidos_auditoria:
         total_p = sum(i.precio_unitario * i.cantidad for i in p.items)
-        
-        # Guardamos los nombres para la tabla (lo que ya tenías)
         nombres_p = ", ".join([f"{i.cantidad} {i.nombre_producto}" for i in p.items])
         
-        # NUEVO: Creamos el detalle técnico para el Modal del Vale
         detalle_para_vale = []
         for i in p.items:
             detalle_para_vale.append({
@@ -513,7 +506,7 @@ def reporte_hoy():
                 "cantidad": i.cantidad,
                 "precio": i.precio_unitario,
                 "nota": i.nota,
-                "quien_pide": i.quien_pide # <--- Esto ahora aparecerá en el vale de auditoría
+                "quien_pide": i.quien_pide
             })
 
         tiempo = "0 min"
@@ -527,10 +520,10 @@ def reporte_hoy():
             "mesero": p.meser_nombre or "Sin nombre",
             "hora_pedido": p.creado_en.strftime('%H:%M') if p.creado_en else "--:--",
             "hora_pago": p.entregado_en.strftime('%H:%M') if p.entregado_en else "--:--",
-            "productos": nombres_p, # Seguimos mandando esto para no dañar la tabla actual
+            "productos": nombres_p,
             "total": total_p,
             "tiempo_atencion": tiempo,
-            "lista_items": detalle_para_vale  # <--- ESTO ES LO NUEVO PARA EL BOTÓN
+            "lista_items": detalle_para_vale
         })
 
     return jsonify({
@@ -539,7 +532,6 @@ def reporte_hoy():
         "mesas": [{"id": m[0], "total": m[1]} for m in ventas_por_mesa],
         "auditoria": lista_auditoria 
     })
-
 @app.route('/admin/auditoria_diaria')
 @login_required  # <--- CANDADO APLICADO
 def auditoria_diaria():

@@ -152,6 +152,12 @@
     </div>
 </div>
     <script>
+        const socket = io();
+        // Escuchar cuando se paga una mesa para actualizar el reporte al instante
+        socket.on('actualizar_mesas', () => {
+            console.log("Actualizando reportes para la jefa...");
+            cargarReporte(); 
+        });
         // CONFIGURACIÓN DE PRODUCTOS Y PRECIOS HAPPY
         const productosHappy = {
             fritos: [

@@ -20,9 +20,13 @@
     const socket = io();
 
     socket.on('actualizar_mesas', () => {
-        actualizarCaja(); 
+        console.log("Señal recibida, limpiando cache y actualizando...");
+        if (typeof ultimaDataStr !== 'undefined') {
+            ultimaDataStr = ""; // Esto rompe el bloqueo de "datos iguales"
+        }
+        // En cocina usas actualizarCocina(), en caja usas actualizarCaja()
+        typeof actualizarCocina === 'function' ? actualizarCocina() : actualizarCaja();
     });
-
     async function actualizarCaja() {
         try {
             const res = await fetch('/estado_mesas');
