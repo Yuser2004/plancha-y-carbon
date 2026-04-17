@@ -7,7 +7,7 @@ import os
 import pytz
 import time  # Para el sleep
 from datetime import datetime, time as dt_time  
-
+bogota_tz = pytz.timezone('America/Bogota')
 basedir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__)
 
@@ -296,64 +296,7 @@ def view_caja():
 def view_jefa():
     return render_template('jefa.html')
 
-@app.route('/estado_mesas')
-def estado_mesas():
-    pedidos_activos = Pedido.query.filter(Pedido.estado.in_(['Pendiente', 'Listo'])).all()
-    resumen = {}
-    
-    # 1. Creamos listas de los nombres que NO deben ir a la pantalla de cocina
-    # Usamos .get() por seguridad en caso de que alguna categoría esté vacía o no exista
-    nombres_fritos = [p['nombre'] for p in CARTA.get('FRITOS', [])]
-    nombres_bebidas = [p['nombre'] for p in CARTA.get('BEBIDAS', [])]
-    
-    # Unificamos ambas listas
-    excluidos_cocina = nombres_fritos + nombres_bebidas
-
-    for p in pedidos_activos:
-        items_cocina = []
-        items_completo = []
-        tiene_pendientes = False
-        
-        for i in p.items:
-            # Para la CAJA siempre va todo
-            item_data = {
-                "nombre": i.nombre_producto,
-                "cantidad": i.cantidad,
-                "precio": i.precio_unitario,
-                "nota": i.nota,
-                "despachado": i.despachado
-            }
-            items_completo.append(item_data)
-
-            # FILTRO CRÍTICO: Si NO es frito y NO es bebida, va para la cocina
-            if i.nombre_producto not in excluidos_cocina:
-                items_cocina.append(item_data)
-                if not i.despachado:
-                    tiene_pendientes = True
-
-        # SOLO enviamos la mesa a la vista de cocina si tiene items de plancha/carbón
-        if items_cocina:
-            resumen[p.mesa] = {
-                "estado": p.estado,
-                "mesero": p.meser_nombre,
-                "items": items_cocina, # Solo plancha/carbón
-                "items_completo": items_completo, # Todo para la caja
-                "tiene_pendientes": tiene_pendientes 
-            }
-        else:
-            # Si el pedido existe pero solo tiene fritos/bebidas, lo enviamos 
-            # solo para la caja con la bandera correspondiente
-            resumen[p.mesa] = {
-                "estado": p.estado,
-                "mesero": p.meser_nombre,
-                "items": [], 
-                "items_completo": items_completo,
-                "tiene_pendientes": False,
-                "solo_caja": True # Bandera extra
-            }
-            
-    return jsonify(resumen)
-
+ 
 @app.route('/enviar_pedido', methods=['POST'])
 def enviar_pedido():
     inicio = time.time()
@@ -407,6 +350,60 @@ def enviar_pedido():
     print(f"DEBUG: Tiempo de respuesta DB: {fin - inicio} segundos")
     socketio.emit('actualizar_mesas')
     return jsonify({"success": True})
+
+
+@app.route('/estado_mesas')
+def estado_mesas():
+    try:
+        # Traemos TODOS los pedidos que no han sido pagados
+        # (Pendiente, Listo, Cocinando, etc.)
+        pedidos_activos = Pedido.query.filter(Pedido.estado != 'Pagado').all()
+        
+        resumen = {}
+        
+        # Listas para filtrar qué va a cocina y qué no
+        nombres_fritos = [p['nombre'] for p in CARTA.get('FRITOS', [])]
+        nombres_bebidas = [p['nombre'] for p in CARTA.get('BEBIDAS', [])]
+        excluidos_cocina = nombres_fritos + nombres_bebidas
+
+        for p in pedidos_activos:
+            items_cocina = []
+            items_completo = []
+            tiene_pendientes = False
+            
+            for i in p.items:
+                item_data = {
+                    "nombre": i.nombre_producto,
+                    "cantidad": i.cantidad,
+                    "precio": i.precio_unitario,
+                    "nota": i.nota,
+                    "despachado": i.despachado
+                }
+                items_completo.append(item_data)
+
+                if i.nombre_producto not in excluidos_cocina:
+                    items_cocina.append(item_data)
+                    if not i.despachado:
+                        tiene_pendientes = True
+
+            # El ID de la mesa debe ser String para el JS
+            mesa_key = str(p.mesa)
+            
+            resumen[mesa_key] = {
+                "estado": p.estado,
+                "mesero": p.meser_nombre,
+                "items": items_cocina,
+                "items_completo": items_completo,
+                "tiene_pendientes": tiene_pendientes,
+                "solo_caja": len(items_cocina) == 0
+            }
+            
+        return jsonify(resumen)
+
+    except Exception as e:
+        print(f"❌ ERROR CRÍTICO EN ESTADO_MESAS: {e}")
+        return jsonify({}), 500 # Devolver vacío pero no 404
+    
 @app.route('/completar_mesa/<num_mesa>', methods=['POST']) 
 def completar_mesa(num_mesa):
     pedido = Pedido.query.filter(Pedido.mesa == num_mesa, Pedido.estado != 'Pagado').first()
@@ -457,44 +454,57 @@ def pagar_mesa(mesa_id):
 @app.route('/admin/reporte_hoy')
 @login_required
 def reporte_hoy():
-    # Definimos el rango de hoy en Colombia (00:00:00 a 23:59:59)
     ahora_col = hora_colombia()
-    hoy_inicio = datetime.combine(ahora_col.date(), dt_time.min)
-    hoy_fin = datetime.combine(ahora_col.date(), dt_time.max)
     
-    # 1. Total dinero (Cambiamos func.date por el rango .between)
+    # Creamos el inicio y fin del día en hora local
+    inicio_dia = ahora_col.replace(hour=0, minute=0, second=0, microsecond=0)
+    fin_dia = ahora_col.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    print(f"--- 🔍 FILTRANDO RANGO LOCAL ---")
+    print(f"Desde: {inicio_dia} hasta {fin_dia}")
+
+    # 1. Total dinero (Cambiamos el filtro de func.date por un between)
     total_diario = db.session.query(func.sum(ItemPedido.precio_unitario * ItemPedido.cantidad))\
         .join(Pedido)\
         .filter(Pedido.estado == 'Pagado')\
-        .filter(Pedido.creado_en.between(hoy_inicio, hoy_fin)).scalar() or 0
+        .filter(Pedido.entregado_en >= inicio_dia, Pedido.entregado_en <= fin_dia).scalar() or 0
 
-    # 2. Top Ventas
+    # 2. Top Ventas (Mismo cambio en el filtro)
     productos_vendidos = db.session.query(
         ItemPedido.nombre_producto, 
         func.sum(ItemPedido.cantidad).label('total')
     ).join(Pedido)\
      .filter(Pedido.estado == 'Pagado')\
-     .filter(Pedido.creado_en.between(hoy_inicio, hoy_fin))\
+     .filter(Pedido.entregado_en >= inicio_dia, Pedido.entregado_en <= fin_dia)\
      .group_by(ItemPedido.nombre_producto)\
      .order_by(func.sum(ItemPedido.cantidad).desc()).all()
 
-    # 3. Ventas por Mesa
+    # 3. Ventas por Mesa (Mismo cambio)
     ventas_por_mesa = db.session.query(
         Pedido.mesa, 
         func.sum(ItemPedido.precio_unitario * ItemPedido.cantidad)
     ).join(ItemPedido)\
      .filter(Pedido.estado == 'Pagado')\
-     .filter(Pedido.creado_en.between(hoy_inicio, hoy_fin))\
+     .filter(Pedido.entregado_en >= inicio_dia, Pedido.entregado_en <= fin_dia)\
      .group_by(Pedido.mesa).all()
 
-    # 4. LISTA PARA LA TABLA DE AUDITORÍA
+    # 4. Auditoría (Mismo cambio)
     pedidos_auditoria = Pedido.query.filter(
         Pedido.estado == 'Pagado',
-        Pedido.creado_en.between(hoy_inicio, hoy_fin)
-    ).order_by(Pedido.creado_en.desc()).all() # Ordenamos para ver lo último arriba
+        Pedido.entregado_en >= inicio_dia, 
+        Pedido.entregado_en <= fin_dia
+    ).order_by(Pedido.entregado_en.desc()).all()
     
     lista_auditoria = []
     for p in pedidos_auditoria:
+        # Forzamos a que Python sepa que la hora de la DB es UTC
+        # y luego la pasamos a Bogotá
+        h_ped_utc = p.creado_en.replace(tzinfo=pytz.UTC) if p.creado_en else None
+        h_pag_utc = p.entregado_en.replace(tzinfo=pytz.UTC) if p.entregado_en else None
+        
+        hora_p_col = h_ped_utc.astimezone(bogota_tz) if h_ped_utc else None
+        hora_e_col = h_pag_utc.astimezone(bogota_tz) if h_pag_utc else None
+
         total_p = sum(i.precio_unitario * i.cantidad for i in p.items)
         nombres_p = ", ".join([f"{i.cantidad} {i.nombre_producto}" for i in p.items])
         
@@ -514,41 +524,63 @@ def reporte_hoy():
             minutos = int(diff.total_seconds() / 60)
             tiempo = f"{minutos} min"
 
+        # ESTA LÍNEA DEBE ESTAR ADENTRO DEL FOR (con 8 espacios de sangría)
         lista_auditoria.append({
             "mesa": p.mesa,
             "mesero": p.meser_nombre or "Sin nombre",
-            "hora_pedido": p.creado_en.strftime('%H:%M') if p.creado_en else "--:--",
-            "hora_pago": p.entregado_en.strftime('%H:%M') if p.entregado_en else "--:--",
+            "hora_pedido": hora_p_col.strftime('%I:%M %p') if hora_p_col else "--:--",
+            "hora_pago": hora_e_col.strftime('%I:%M %p') if hora_e_col else "--:--",
             "productos": nombres_p,
             "total": total_p,
             "tiempo_atencion": tiempo,
             "lista_items": detalle_para_vale
         })
 
+
+    # Formateamos los productos para el JS
+    lista_productos = [
+        {"nombre": p[0], "cantidad": p[1]} 
+        for p in productos_vendidos
+    ]
+
+    # Formateamos las mesas para el JS
+    lista_mesas = [
+        {"id": m[0], "total": m[1]} 
+        for m in ventas_por_mesa
+    ]
+
     return jsonify({
         "total_dinero": total_diario,
-        "productos": [{"nombre": p[0], "cantidad": p[1]} for p in productos_vendidos],
-        "mesas": [{"id": m[0], "total": m[1]} for m in ventas_por_mesa],
-        "auditoria": lista_auditoria,
-        "fecha_reporte": ahora_col.strftime('%A, %d de %B') # <--- AGREGA ESTO
+        "productos": lista_productos,    # Ahora sí enviamos la data
+        "mesas": lista_mesas,            # Ahora sí enviamos la data
+        "auditoria": lista_auditoria,    # Ahora sí enviamos la data
+        "fecha_reporte": ahora_col.strftime('%A, %d de %B')
     })
 @app.route('/admin/auditoria_diaria')
-@login_required  # <--- CANDADO APLICADO
+@login_required
 def auditoria_diaria():
-    hoy = hora_colombia().date()
+    ahora_col = hora_colombia()
+    inicio_dia = ahora_col.replace(hour=0, minute=0, second=0, microsecond=0)
+    fin_dia = ahora_col.replace(hour=23, minute=59, second=59, microsecond=999999)
+
     auditoria = Pedido.query.filter(
         Pedido.estado == 'Pagado',
-        func.date(Pedido.creado_en) == hoy
+        Pedido.entregado_en >= inicio_dia, 
+        Pedido.entregado_en <= fin_dia
     ).all()
     
     reporte = []
     for p in auditoria:
+        # Convertimos la hora de la DB a Bogotá antes de mostrarla
+        h_ped = p.creado_en.astimezone(bogota_tz) if p.creado_en else None
+        h_pag = p.entregado_en.astimezone(bogota_tz) if p.entregado_en else None
+        
         total_pedido = sum(i.precio_unitario * i.cantidad for i in p.items)
         reporte.append({
             "mesa": p.mesa,
             "mesero": p.meser_nombre,
-            "hora_pedido": p.creado_en.strftime('%H:%M') if p.creado_en else "--",
-            "hora_pago": p.entregado_en.strftime('%H:%M') if p.entregado_en else "--",
+            "hora_pedido": h_ped.strftime('%I:%M %p') if h_ped else "--",
+            "hora_pago": h_pag.strftime('%I:%M %p') if h_pag else "--",
             "productos": [f"{i.cantidad}x {i.nombre_producto}" for i in p.items],
             "total": total_pedido
         })

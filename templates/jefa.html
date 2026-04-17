@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gerencia - Plancha y Carbón</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         @keyframes pulse-live {
@@ -17,6 +18,7 @@
             animation: pulse-live 2s infinite ease-in-out;
         }
     </style>
+    
 </head>
 <body class="bg-slate-50 min-h-screen pb-10">
     
@@ -163,6 +165,10 @@
 </div>
     <script>
         const socket = io();
+        // Verificación de conexión
+        socket.on('connect', () => {
+            console.log("✅ Conectado al servidor Socket.io");
+        });
         // Escuchar cuando se paga una mesa para actualizar el reporte al instante
         socket.on('actualizar_mesas', () => {
             console.log("Actualizando reportes para la jefa...");
@@ -206,22 +212,34 @@
             "Agua natural": 2000, "Agua con gas": 2500, "Coca-Cola 1.5L": 6500, "Quatro 1.5L": 6000
         };
 
-        // --- FUNCIONES DE REPORTES P&C ---
+    // --- FUNCIONES DE REPORTES P&C ---
         async function cargarReporte() {
             try {
                 const res = await fetch('/admin/reporte_hoy?t=' + new Date().getTime());
                 const data = await res.json();
+                
                 if(data.fecha_reporte) {
                     document.getElementById('fecha-actual').innerText = data.fecha_reporte;
                 }
-                document.getElementById('total-dinero').innerText = `$${data.total_dinero.toLocaleString()}`;
-                document.getElementById('total-mesas').innerText = data.mesas.length;
                 
-                if(data.productos.length > 0) {
-                    document.getElementById('top-producto').innerText = data.productos[0].nombre;
+                // Si no hay dinero, asegura que sea un 0 para que no se tranque
+                const dinero = data.total_dinero || 0;
+                document.getElementById('total-dinero').innerText = `$${dinero.toLocaleString()}`;
+                
+                // Si no hay mesas, asume que la lista está vacía
+                const mesas = data.mesas || [];
+                document.getElementById('total-mesas').innerText = mesas.length;
+                
+                // Si no hay productos, evita buscar el primero y pon unas rayas
+                const productos = data.productos || [];
+                if(productos.length > 0) {
+                    document.getElementById('top-producto').innerText = productos[0].nombre;
+                } else {
+                    document.getElementById('top-producto').innerText = "---";
                 }
+
                 const listaProd = document.getElementById('lista-productos');
-                listaProd.innerHTML = data.productos.map((p, index) => `
+                listaProd.innerHTML = productos.map((p, index) => `
                     <div class="flex justify-between items-center p-3">
                         <div class="flex items-center gap-3">
                             <span class="text-indigo-900 font-black text-sm">${index + 1}.</span>
@@ -232,16 +250,29 @@
                 `).join('');
 
                 const listaMesas = document.getElementById('lista-mesas');
-                listaMesas.innerHTML = data.mesas.map(m => `
+                listaMesas.innerHTML = mesas.map(m => `
                     <div class="flex justify-between items-center p-3">
                         <span class="text-sm font-bold text-slate-500">Mesa ${m.id}</span>
                         <span class="text-sm font-black text-slate-800">$${m.total.toLocaleString()}</span>
                     </div>
                 `).join('');
-                if(data.auditoria) {
-                    cargarAuditoria(data.auditoria);
-                }    
-            } catch (e) { console.error("Error cargando reporte", e); }
+
+                // Si no hay vales para revisar, deja la zona de auditoría limpia
+                const auditoria = data.auditoria || [];
+                if(auditoria.length > 0) {
+                    cargarAuditoria(auditoria);
+                } else {
+                    document.getElementById('tabla-auditoria').innerHTML = `
+                        <tr>
+                            <td colspan="5" class="text-center p-4 text-slate-400 font-bold text-xs uppercase">
+                                Aún no hay vales pagados hoy
+                            </td>
+                        </tr>
+                    `;
+                }
+            } catch (e) { 
+                console.error("Fallo al acomodar los números en la pantalla", e); 
+            }
         }
 
         // --- FUNCIONES MODO HAPPY ---
