@@ -113,7 +113,7 @@ async function actualizarCocina() {
                     reproducirSonido();
 
                     // 1. Preparamos el pedazo de texto de la nota (si existe)
-                    const notaParaVoz = item.nota ? `, con nota especial: ${item.nota}` : '';
+                    const notaParaVoz = item.nota ? `, Nota: ${item.nota}` : '';
 
                     // 2. Metemos 'notaParaVoz' en el mensaje
                     const textoRepetido = `Mesa ${numMesa}, atendida por ${nombreMesero}. ${item.cantidad} ${item.nombre}${notaParaVoz}. Repito. ${item.cantidad} ${item.nombre}${notaParaVoz}.`;
