@@ -6,6 +6,17 @@
     <title>Gerencia - Plancha y Carbón</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @keyframes pulse-live {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.95); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .animate-pulse-live {
+            animation: pulse-live 2s infinite ease-in-out;
+        }
+    </style>
 </head>
 <body class="bg-slate-50 min-h-screen pb-10">
     
@@ -81,9 +92,8 @@
         <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
             <p class="text-slate-400 uppercase text-[10px] font-black tracking-widest mb-1">Ventas Netas Hoy</p>
             <h2 id="total-dinero" class="text-5xl font-black text-slate-800 tracking-tighter">$0</h2>
-            <div class="mt-2 flex items-center text-green-500 text-xs font-bold">
-                <i class="fas fa-arrow-up mr-1"></i>
-                <span>En vivo</span>
+            <div class="mt-2 flex items-center text-green-500 text-xs font-bold animate-pulse-live">
+                <i class="fas fa-circle mr-1" style="font-size: 8px;"></i> <span>EN VIVO</span>
             </div>
         </div>
 
@@ -156,7 +166,18 @@
         // Escuchar cuando se paga una mesa para actualizar el reporte al instante
         socket.on('actualizar_mesas', () => {
             console.log("Actualizando reportes para la jefa...");
+            
+            const displayDinero = document.getElementById('total-dinero');
+            
+            // Añadimos un color temporal (ej. indigo) para resaltar el cambio
+            displayDinero.classList.add('text-indigo-600', 'scale-110', 'transition-all');
+            
             cargarReporte(); 
+
+            // Quitamos el resaltado después de 1 segundo
+            setTimeout(() => {
+                displayDinero.classList.remove('text-indigo-600', 'scale-110');
+            }, 1000);
         });
         // CONFIGURACIÓN DE PRODUCTOS Y PRECIOS HAPPY
         const productosHappy = {
