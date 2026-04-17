@@ -454,22 +454,25 @@ def pagar_mesa(mesa_id):
 @app.route('/admin/reporte_hoy')
 @login_required
 def reporte_hoy():
+    # 1. Obtenemos la fecha actual de Colombia
     ahora_col = hora_colombia()
-    
-    # Creamos el inicio y fin del día en hora local
-    inicio_dia = ahora_col.replace(hour=0, minute=0, second=0, microsecond=0)
-    fin_dia = ahora_col.replace(hour=23, minute=59, second=59, microsecond=999999)
+    fecha_hoy_col = ahora_col.date()
 
-    print(f"--- 🔍 FILTRANDO RANGO LOCAL ---")
+    # 2. Creamos el rango contable: 00:00:00 a 23:59:59 del día actual en Colombia
+    # Usamos combine para asegurar que el rango sea del día calendario exacto
+    inicio_dia = bogota_tz.localize(datetime.combine(fecha_hoy_col, dt_time.min))
+    fin_dia = bogota_tz.localize(datetime.combine(fecha_hoy_col, dt_time.max))
+
+    print(f"--- 🔍 FILTRANDO RANGO CONTABLE (COLOMBIA) ---")
     print(f"Desde: {inicio_dia} hasta {fin_dia}")
 
-    # 1. Total dinero (Cambiamos el filtro de func.date por un between)
+    # 1. Total dinero
     total_diario = db.session.query(func.sum(ItemPedido.precio_unitario * ItemPedido.cantidad))\
         .join(Pedido)\
         .filter(Pedido.estado == 'Pagado')\
         .filter(Pedido.entregado_en >= inicio_dia, Pedido.entregado_en <= fin_dia).scalar() or 0
 
-    # 2. Top Ventas (Mismo cambio en el filtro)
+    # 2. Top Ventas
     productos_vendidos = db.session.query(
         ItemPedido.nombre_producto, 
         func.sum(ItemPedido.cantidad).label('total')
@@ -479,7 +482,7 @@ def reporte_hoy():
      .group_by(ItemPedido.nombre_producto)\
      .order_by(func.sum(ItemPedido.cantidad).desc()).all()
 
-    # 3. Ventas por Mesa (Mismo cambio)
+    # 3. Ventas por Mesa
     ventas_por_mesa = db.session.query(
         Pedido.mesa, 
         func.sum(ItemPedido.precio_unitario * ItemPedido.cantidad)
@@ -488,7 +491,7 @@ def reporte_hoy():
      .filter(Pedido.entregado_en >= inicio_dia, Pedido.entregado_en <= fin_dia)\
      .group_by(Pedido.mesa).all()
 
-    # 4. Auditoría (Mismo cambio)
+    # 4. Auditoría (Lista de vales)
     pedidos_auditoria = Pedido.query.filter(
         Pedido.estado == 'Pagado',
         Pedido.entregado_en >= inicio_dia, 
@@ -497,8 +500,7 @@ def reporte_hoy():
     
     lista_auditoria = []
     for p in pedidos_auditoria:
-        # Forzamos a que Python sepa que la hora de la DB es UTC
-        # y luego la pasamos a Bogotá
+        # Conversión de UTC (Base de datos) a Colombia para mostrar en tabla
         h_ped_utc = p.creado_en.replace(tzinfo=pytz.UTC) if p.creado_en else None
         h_pag_utc = p.entregado_en.replace(tzinfo=pytz.UTC) if p.entregado_en else None
         
@@ -524,7 +526,7 @@ def reporte_hoy():
             minutos = int(diff.total_seconds() / 60)
             tiempo = f"{minutos} min"
 
-        # ESTA LÍNEA DEBE ESTAR ADENTRO DEL FOR (con 8 espacios de sangría)
+        # Agregamos a la lista (dentro del for)
         lista_auditoria.append({
             "mesa": p.mesa,
             "mesero": p.meser_nombre or "Sin nombre",
@@ -536,24 +538,15 @@ def reporte_hoy():
             "lista_items": detalle_para_vale
         })
 
-
-    # Formateamos los productos para el JS
-    lista_productos = [
-        {"nombre": p[0], "cantidad": p[1]} 
-        for p in productos_vendidos
-    ]
-
-    # Formateamos las mesas para el JS
-    lista_mesas = [
-        {"id": m[0], "total": m[1]} 
-        for m in ventas_por_mesa
-    ]
+    # Formateamos para el frontend
+    lista_productos = [{"nombre": p[0], "cantidad": p[1]} for p in productos_vendidos]
+    lista_mesas = [{"id": m[0], "total": m[1]} for m in ventas_por_mesa]
 
     return jsonify({
         "total_dinero": total_diario,
-        "productos": lista_productos,    # Ahora sí enviamos la data
-        "mesas": lista_mesas,            # Ahora sí enviamos la data
-        "auditoria": lista_auditoria,    # Ahora sí enviamos la data
+        "productos": lista_productos,
+        "mesas": lista_mesas,
+        "auditoria": lista_auditoria,
         "fecha_reporte": ahora_col.strftime('%A, %d de %B')
     })
 @app.route('/admin/auditoria_diaria')
